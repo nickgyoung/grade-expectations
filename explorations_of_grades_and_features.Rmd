@@ -1,0 +1,295 @@
+---
+title: 'Grade Expectations: An educational overview of statistical methods, predictive
+  modeling, & feature selection techniques through student GPAs '
+output:
+  html_document:
+    df_print: paged
+---
+
+It's been a while since I've formally practiced any data science. Although this was the better part of my life from 2021 through 2024 while I was in grad school, I'm amazed how much taking a half-year break to travel can make me rusty. As a means to refresh my memory and help educate others, I'm exploring some synthetic data around student GPAs to demythologize A/B testing (student's t-test, ANOVA, and their non-parametric counterparts), and teach some linear regression based feature selection methods.
+
+This student habit and academic performance data was grabbed from [Kaggle](https://www.kaggle.com/datasets/aryan208/student-habits-and-academic-performance-dataset?resource=download) and features many useful predictor variables of different data types. I walk through my full analytic and EDA process in this Rmarkdown notebook starting with simple exploration below.
+
+
+```{r, warning=FALSE, message=FALSE, echo = F}
+# loading the necessary data and packages
+library(tidyverse)
+library(caret)
+library(tidymodels)
+grades_and_features <- read_csv('./data/enhanced_student_habits_performance_dataset.csv')
+```
+
+```{r, warning= F, message = F}
+#prelim EDA Chunk, I observe data in note book after this to ideate some next questions
+head(grades_and_features)
+
+```
+
+```{r}
+# further investigations post prelim-EDA
+
+#1. Are the student IDs true primary keys? Will output true if there are ANY repeats
+print(any(duplicated(grades_and_features$student_id)))
+
+#2. Are the text categorical features separable as expected (no extra classes besides on typos or classes that should roll into each other)?
+grades_and_features %>%
+  select(where(is.character)) %>%
+  imap(~ {
+    cat("\nColumn:", .y, "\n")
+    print(unique(.x))
+  })
+
+#3. are there any outliers in the numerical features that could potentially disproportionately affect future models? I.e. a clerical input error that we would not want to keep, rather than an outlier that could still be valid.
+
+summary(grades_and_features %>% select(where(is.double)))
+```
+At a glance, the data is pretty clean. That makes sense given that it is synthetic data and was probably created programmatically with some random generation. 
+
+Let's spit out and check some hypotheses utilizing A/B testing (t-test).
+
+```{r}
+#1. women have demonstrably higher exam scores than men.
+
+# Four assumptions underlying a t-test:
+# A. The observed variable of comparison is normally distributed
+# B. There is equal variance amongst our classes
+# C. The observations are independent
+# D. The observed variable is continuous 
+
+# checking normality
+library(ggplot2)
+ggplot(grades_and_features, aes(sample = exam_score)) +
+  stat_qq() + stat_qq_line() +
+  facet_wrap(~ gender)
+
+# the distributions are not normal, therefore we should defer to some other non-parametric test. In this case we will use Wilcoxon Rank Sum Test.
+# Assumptions
+# a. the observations are independent
+# b. the observed variable is continuous
+# c. Identical shape of distribution (need not be normally distributed)
+# d. Observations should be randomly sampled
+
+wilcox.test(exam_score ~ gender, data = grades_and_features %>% filter(gender != 'Other'), alternative = "greater")
+
+# now that I know there's no meaningful difference between test scores of men and women, let's add our third gender option into the mix. Now I will hypothesize there is no meaningful difference, i.e. we should accept the null hypothesis
+
+#2. Exam scores between gender categories are not statistically meaningfully different
+
+kruskal.test(exam_score ~ gender, data = grades_and_features)
+
+```
+
+I've proven to myself that, statistically speaking, there is no meaningful difference between the test scores between gender categories. I'm being pedantic for educational purposes - that was a given. Let's do one more take, of something I might actually be convinced is true - whilst remembering this data is synthetic and observed synthetic patterns might not match expected reality.
+
+```{r}
+
+#3. Exam scores are observably different between parent education levels.
+
+kruskal.test(exam_score ~ parental_education_level, data = grades_and_features)
+
+
+```
+
+Alright, well my hypothesis was wrong. We see that I can do this for every single categorical variable to determine which (if any) have an effect on exam_score. This would be a very crude and rudimentary method of feature selection. There are better methods, of course. I'll be walking through those, but first working that from another angle: feature removal.
+
+We can check for multi-collinearity amongst features using VIF. 
+
+```{r}
+cor_matrix <- cor(grades_and_features[sapply(grades_and_features, is.numeric)], use = "complete.obs")
+library(corrplot)
+corrplot::corrplot(cor_matrix, method = "color", tl.cex = 0.7)
+```
+Keep in mind, this synthetic data might not match real-world expectations, so the interpretations might likewise be void of meaning.
+
+
+```{r}
+# removing features based on some observed multi-collinearity
+grades_and_features <- grades_and_features %>% select(-screen_time, -motivation_level, -student_id)
+```
+
+
+Next I want to begin talking about the regression based feature selection methods, but that involves a basic understanding in linear regression, so let's do that.
+
+```{r}
+lm(exam_score ~ ., grades_and_features) %>% summary()
+```
+I think a thorough explanation of linear regression is a little outside the scope of this blog post and requires some foundational knowledge of linear algebra, calculus, and stats/probability. It's not in my interest to talk at length about these, but I'll try to give a layman's primer on linear regression.
+
+Hopefully you remember algebraic equation for a line:
+
+$$
+y = mx + b
+$$
+
+For any two variables that we hypothesize have a linear relationship, we can assume for a given value of x, there will be a statistically reasonable predicted value of y. And we can even visualize this easy enough with a scatter plot. See below where all the points are the actual (x, y) coordinates of these variables and the blue line is our regressor.
+
+```{r}
+ggplot(data = grades_and_features, aes(x = previous_gpa, y = exam_score)) + geom_point(alpha = 0.2) + geom_smooth(method = 'lm') + labs(title = 'Exam Score as a function of Previous GPA', xlab = 'Previous GPA' , ylab = 'Exam Score')
+
+```
+And here we have it: a line of "best fit" that summarizes the relationship between the previous GPA and the current exam score. Trust that there are mathematical procedures of optimization occurring here that guarantee this is the line of best fit, or the line that best summarizes a linear relationship between these two variables. It's not perfect of course - the relationship between previous GPA and exam score is clearly not a perfectly linear one, or then the scatter plot would be a perfect line instead of a mass of points that can be generally understood by a line.
+
+This implies that the relationship between these two is not solely linear and that other variables (combined with previous GPA) may be necessary to accurately predict exam score. And now we move on to consider multi-variable linear regression. 
+
+To briefly explain how multi-variable linear regression works: the same as regular linear regression. Linear regression as a technique is generalizable to any amount of dimensions. the line of best fit is actually a hyperplane. Because we can only meaningfully perceive three dimensions, here's what multiple linear regression looks like using previous GPA and exam anxiety score to predict exam scores looks like.
+
+```{r}
+library(plotly)
+
+# Fit the model
+mlm_model <- lm(exam_score ~ previous_gpa + exam_anxiety_score, data = grades_and_features)
+
+# Create a grid for the plane using the real variable names
+x1_seq <- seq(min(grades_and_features$previous_gpa, na.rm = TRUE),
+              max(grades_and_features$previous_gpa, na.rm = TRUE), length.out = 30)
+
+x2_seq <- seq(min(grades_and_features$exam_anxiety_score, na.rm = TRUE),
+              max(grades_and_features$exam_anxiety_score, na.rm = TRUE), length.out = 30)
+
+grid <- expand.grid(previous_gpa = x1_seq, exam_anxiety_score = x2_seq)
+grid$exam_score <- predict(mlm_model, newdata = grid)
+
+# Create 3D plot
+plot_ly() %>%
+  add_markers(data = grades_and_features, x = ~previous_gpa, y = ~exam_anxiety_score, z = ~exam_score,
+              marker = list(size = 2), name = "Observed Data") %>%
+  add_surface(x = ~x1_seq, y = ~x2_seq,
+              z = ~matrix(grid$exam_score, nrow = length(x1_seq), byrow = TRUE),
+              showscale = FALSE, opacity = 0.5, name = "Regression Plane") %>%
+  layout(scene = list(
+    xaxis = list(title = "Previous GPA"),
+    yaxis = list(title = "Exam Anxiety Score"),
+    zaxis = list(title = "Exam Score")
+  ))
+
+```
+
+And now we have a hyperplane of best fit that shows the relationships between previous GPA, exam anxiety score, and exam score. And still, this relationship is still not perfectly linear - given the previous GPA and the exam anxiety score, we can't predict the exam score with 100% certainty. 
+
+Data science is often described as both an art and a science. The art lies in recognizing that we may never fully capture the relationship between all possible predictors and an outcome like exam score. We may lack key variables, or the underlying patterns may be nonlinear or complex. But the science lies in our ability to make informed, methodical progress—using statistical tools and the scientific method—to build models that are useful, even if imperfect.
+
+So now, I'll begin to go through some of the scientific methods that inform feature selection. We've already gone through one: A/B testing. Determining whether a response variable is significantly impacted by the values of some other categorical predictor variable is the crux of the A/B, ANOVA and their non-parametric counterparts. We could iterate through all our categorical variables applying the right test for each one, but this is a little rudimentary and doesn't account for the numerical variables.
+
+Allow me to discuss a few other feature selection methods built upon linear regression. First, I'll need to explain some of the output of linear regression. Let's return to the two dimensional regression predicting exam score by way of previous GPA. This time I'll apply some standard handling conventions in preparation to develop a finalized model.
+
+```{r}
+# forming a training+validation / test split
+
+#80 goes to training and validation
+set.seed(512)
+trainval_indices <- createDataPartition(grades_and_features$exam_score, p = 0.8, list = F)
+trainval_data <- grades_and_features[trainval_indices, ]
+test_data <- grades_and_features[-trainval_indices, ]
+
+# cross-validation object
+cv_obj <- vfold_cv(trainval_data, v = 5)
+
+```
+
+Beginning with stepwise regression, we add/remove one variable at time from the full model with all variables in search of a choice that will continue to reduce a metric known as the Akaike Information Criterion (AIC), just a number for comparing the efficiency of models whilst holding them accountable for the amount of predictors they have.
+
+```{r}
+# scaling the test and training data
+rec <- recipe(exam_score ~ . , data = trainval_data) %>%
+  step_dummy(all_nominal_predictors()) %>%
+  step_normalize(all_predictors())
+
+prep_rec <- prep(rec, training = trainval_data)
+
+trainval_processed <- bake(prep_rec, new_data = trainval_data)
+test_processed  <- bake(prep_rec, new_data = test_data)
+
+```
+
+From here we run our stepwise regression model.
+
+```{r}
+# a full model to stepwise train from 
+full_model <- lm('exam_score ~ .' , data = trainval_processed)
+
+# the stepwise regression derived lm
+stepwise_model <- stats::step(full_model, direction = 'both', trace = 0)
+
+```
+
+The stepwise regression model is relatively easy to obtain (from a coding perspective), at a later point we can train the derived model on the full training data and test on the test data. For now, we'll move on to training a LASSO regression model. 
+
+```{r}
+lasso_spec <- linear_reg(penalty = tune(), mixture = 1) %>%
+  set_engine("glmnet")
+
+lasso_wf <- workflow() %>%
+  add_model(lasso_spec) %>%
+  add_recipe(rec)
+
+# Choose grid of penalty values (can be customized)
+lambda_grid <- tibble(penalty = c(1, 0.1, 0.01))
+  # grid_regular(penalty(range = c(-4, 0)), levels = 30)
+
+# LASSO tuning
+lasso_res <- tune_grid(
+  lasso_wf,
+  resamples = cv_obj,
+  grid = lambda_grid,
+  metrics = metric_set(rmse, rsq, mae)
+)
+
+best_lasso <- select_best(lasso_res, metric =  "rmse")
+
+lasso_final_wf <- finalize_workflow(lasso_wf, best_lasso)
+
+lasso_model <- fit(lasso_final_wf, data = trainval_data)
+
+lasso_model_fit <- extract_fit_parsnip(lasso_model)
+
+lasso_model_fit$fit$call
+
+
+```
+
+
+```{r}
+# Extract glmnet model
+glmnet_fit <- lasso_model_fit$fit
+
+# Use best lambda
+best_lambda <- best_lasso$penalty
+
+# Get the coefficient matrix at that lambda (this is a sparse matrix)
+coef_mat <- coef(glmnet_fit, s = best_lambda)
+
+# Convert to tidy tibble manually
+library(tibble)
+library(dplyr)
+
+selected_features <- as.matrix(coef_mat) %>%
+  as_tibble(rownames = "term") %>%
+  rename(estimate = s0) %>%
+  filter(estimate != 0)
+
+selected_features
+
+```
+
+The LASSO regression model determines that the most necessary variable(s) in relation to exam_score is solely previous_gpa. Whereas our stepwise regression model picked the variables previous_gpa, and one-hot dummy encoded flavors of the internet_quality, study_environment, and learning_style variable. Both of these regression techniques have acted as variable selection methodologies, similar in how we could have applied A/B or ANOVA testing across a large swath of our categorical variables to perform feature selection. 
+
+Now all that's left is to ask of ourselves which model performs best? 
+
+```{r}
+# generating LASSO predictions
+lasso_preds <- predict(lasso_model, new_data = test_data) %>%
+  bind_cols(test_data %>% select(exam_score))
+
+# generating stepwise predictions
+test_for_stepwise <- bake(prep(rec, training = trainval_data), new_data = test_data)
+
+stepwise_preds <- predict(stepwise_model, newdata = test_for_stepwise) %>%
+  bind_cols(test_data %>% select(exam_score)) %>% rename('.pred' = '...1')
+
+# calculating rmse of both
+lasso_rmse <- sqrt(sum((lasso_preds$.pred - lasso_preds$exam_score)^2) / nrow(lasso_preds))
+
+stepwise_rmse <- sqrt(sum((stepwise_preds$.pred - stepwise_preds$exam_score)^2) / nrow(stepwise_preds)) 
+
+
+```
