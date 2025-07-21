@@ -6,7 +6,7 @@ output:
     df_print: paged
 ---
 
-It's been a while since I've formally practiced any data science. Although this was the better part of my life from 2021 through 2024 while I was in grad school, I'm amazed how much taking a half-year break to travel can make me rusty. As a means to refresh my memory and help educate others, I'm exploring some synthetic data around student GPAs to demythologize A/B testing (student's t-test, ANOVA, and their non-parametric counterparts), and teach some linear regression based feature selection methods.
+It's been a while since I've formally practiced any data science. Although this was the better part of my life from 2021 through 2024 while I was in grad school, I'm amazed how much taking a half-year break to travel can make me rusty. As a means to refresh my memory and help educate others, I'm exploring some synthetic data around student GPAs to de-mythologize A/B testing (student's t-test, ANOVA, and their non-parametric counterparts), and teach some linear regression based feature selection methods.
 
 This student habit and academic performance data was grabbed from [Kaggle](https://www.kaggle.com/datasets/aryan208/student-habits-and-academic-performance-dataset?resource=download) and features many useful predictor variables of different data types. I walk through my full analytic and EDA process in this Rmarkdown notebook starting with simple exploration below.
 
